@@ -1,0 +1,100 @@
+name: Update Copyright Year
+on:
+  schedule:
+    # Runs at 00:00 UTC on January 1st every year
+    - cron: '0 0 1 1 *'
+  # Allows you to run this manually from the "Actions" tab to test it immediately
+  workflow_dispatch:
+
+jobs:
+  update-year:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install PyGithub
+        run: pip install PyGithub
+
+      - name: Run Update Script
+        env:
+          # Securely pull the token from secrets
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          python -c "
+          import os
+          import re
+          from datetime import datetime
+          from github import Github
+
+          # --- CONFIGURATION ---
+          TOKEN = os.environ['GH_TOKEN']
+          TARGET_USER = 'swedishstudiosgames'
+          TARGET_FILE = 'index.html'
+
+          # Dynamic Year Calculation (e.g., '2008-2026')
+          current_year = datetime.now().year
+          NEW_RANGE = f'2008-{current_year}'
+
+          # Regex to find '2008-' followed by ANY 4 digits
+          OLD_PATTERN = r'2008-\d{4}'
+
+          def run_update():
+              if not TOKEN:
+                  print('Error: PAT_TOKEN secret is missing.')
+                  return
+
+              g = Github(TOKEN)
+              user = g.get_user(TARGET_USER)
+              
+              print(f'🚀 Starting Public Repo Scan for: {TARGET_USER}')
+              print(f'🎯 Target: Replace {OLD_PATTERN} with {NEW_RANGE}')
+
+              # Fetch only PUBLIC repositories
+              repos = user.get_repos(type='public')
+
+              count = 0
+              for repo in repos:
+                  if repo.archived:
+                      continue
+
+                  try:
+                      # Get file contents
+                      file_content = repo.get_contents(TARGET_FILE)
+                      decoded = file_content.decoded_content.decode('utf-8')
+
+                      # Strict Check: Must have footer tag
+                      if '<footer>' not in decoded:
+                          continue
+
+                      # Regex Check
+                      match = re.search(OLD_PATTERN, decoded)
+                      if match:
+                          found_range = match.group(0)
+                          
+                          # Only update if the year is outdated
+                          if found_range != NEW_RANGE:
+                              print(f'   [EDITING] {repo.name}: {found_range} -> {NEW_RANGE}')
+                              
+                              # Replace text
+                              new_text = re.sub(OLD_PATTERN, NEW_RANGE, decoded)
+                              
+                              # Commit change
+                              repo.update_file(
+                                  path=file_content.path,
+                                  message=f'chore: update copyright to {NEW_RANGE}',
+                                  content=new_text,
+                                  sha=file_content.sha
+                              )
+                              count += 1
+                  except Exception:
+                      # Skip repos that don't have index.html or other errors
+                      continue
+              
+              print(f'✨ Done. Updated {count} repositories.')
+
+          if __name__ == '__main__':
+              run_update()
+          "
